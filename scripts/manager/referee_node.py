@@ -456,6 +456,165 @@ class RefereeNode(object):
             self._map_data = msg.data  # tuple/list of int8
             self._map_stamp = rospy.Time.now().to_sec()
 
+# ------------------ 下面为追加内容（只增填，不修改上面原有逻辑） ------------------
+# 新增：在裁判端维护 projectile（子弹）及其推进/命中检测（不考虑地图障碍）。
+# 同时将 _on_fire_event 用新的实现替换（通过追加绑定），以满足：
+#  - 每次 FireEvent 只产生一次 projectile（一次事件一次发射）
+#  - 裁判端对开火进行 3 秒冷却检查（跨客户端/服务端也能生效）
+#  - 命中判定忽略地图障碍（直接基于距离与 hit_width 判定）
+
+def _ref_dist(a, b):
+    return math.hypot(float(a[0]) - float(b[0]), float(a[1]) - float(b[1]))
+
+def _ensure_projectiles_container(self):
+    if not hasattr(self, "projectiles"):
+        # projectiles: list of dict {'shooter_ns', 'pos':[x,y], 'dir':[dx,dy], 'speed', 'power', 'alive', 'spawn_time'}
+        self.projectiles = []
+
+def spawn_projectile(self, proj):
+    """把一个 projectile 字典加入裁判管理的子弹池（最小字段见下文）。"""
+    _ensure_projectiles_container(self)
+    p = {
+        "shooter_ns": proj.get("shooter_ns"),
+        "pos": [float(proj.get("pos", [0.0, 0.0])[0]), float(proj.get("pos", [0.0, 0.0])[1])],
+        "dir": [float(proj.get("dir", [0.0, 0.0])[0]), float(proj.get("dir", [0.0, 0.0])[1])],
+        "speed": float(proj.get("speed", 10.0)),
+        "power": float(proj.get("power", self.fire_damage)),
+        "alive": True,
+        "spawn_time": float(proj.get("spawn_time", rospy.Time.now().to_sec())),
+    }
+    self.projectiles.append(p)
+    rospy.loginfo_throttle(5.0, "[referee] projectile spawned by %s pos=(%.2f,%.2f) dir=(%.2f,%.2f)",
+                          p["shooter_ns"], p["pos"][0], p["pos"][1], p["dir"][0], p["dir"][1])
+
+def step_projectiles(self, dt):
+    """推进当前所有子弹并检测与 global_states 中机器人的碰撞（忽略地图障碍）。"""
+    _ensure_projectiles_container(self)
+    if not hasattr(self, "global_states"):
+        return
+
+    # 复制列表以安全移除
+    for proj in list(self.projectiles):
+        if not proj.get("alive", True):
+            try:
+                self.projectiles.remove(proj)
+            except ValueError:
+                pass
+            continue
+
+        # 推进
+        proj["pos"][0] += proj["dir"][0] * proj["speed"] * dt
+        proj["pos"][1] += proj["dir"][1] * proj["speed"] * dt
+
+        # 检测与所有机器人碰撞（跳过射手自己）
+        for ns, state in list(self.global_states.items()):
+            if ns == proj.get("shooter_ns"):
+                continue
+            if not state.get("alive", True):
+                continue
+            target_pos = [float(state.get("x", 0.0)), float(state.get("y", 0.0))]
+            # 使用 hit_width 作为碰撞半径（与 _ray_hit 中的 hit_width 语义接近）
+            if _ref_dist(target_pos, proj["pos"]) <= float(self.hit_width):
+                # 命中：扣血并标记子弹消失
+                old_hp = int(state.get("hp", self.default_hp))
+                new_hp = max(0, old_hp - int(proj.get("power", self.fire_damage)))
+                state["hp"] = new_hp
+                state["alive"] = bool(new_hp > 0)
+                rospy.loginfo("[referee] projectile hit: shooter=%s target=%s hp:%d->%d",
+                              proj.get("shooter_ns"), ns, old_hp, new_hp)
+                if old_hp > 0 and new_hp == 0:
+                    rospy.loginfo("[referee] kill by projectile: shooter=%s target=%s",
+                                  proj.get("shooter_ns"), ns)
+                # remove projectile
+                proj["alive"] = False
+                try:
+                    self.projectiles.remove(proj)
+                except ValueError:
+                    pass
+                break
+
+# 新实现的 _on_fire_event（替换原实现，方式为追加绑定，保留原方法在 __orig__ 前缀下）
+def _ref_on_fire_event(self, msg, topic_ns):
+    """新 _on_fire_event：
+      - 每次 fire_event 产生一次 projectile（不立即做射线判定）
+      - 裁判端也会对每个 shooter 做 3s 冷却
+      - 命中判定在 step_projectiles 中进行，且不考虑地图障碍
+    """
+    shooter_ns = self._normalize_ns(msg.shooter_ns) or self._normalize_ns(topic_ns)
+    if not shooter_ns:
+        return
+
+    with self._lock:
+        shooter = self._ensure_robot_record(shooter_ns)
+        if shooter is None:
+            return
+
+        shooter_team = shooter.get("team", "unknown")
+        if shooter_team not in ("red", "blue"):
+            rospy.logwarn_throttle(2.0, "[referee] unknown shooter team: %s", shooter_ns)
+            return
+
+        # 死亡或无弹拦截（与原逻辑一致）
+        if not shooter.get("alive", True):
+            rospy.logwarn_throttle(2.0, "[referee] dead shooter fire blocked: %s", shooter_ns)
+            return
+
+        old_ammo = float(shooter.get("ammo", self.default_ammo))
+        if old_ammo <= 0.0:
+            rospy.logwarn_throttle(2.0, "[referee] fire blocked (no ammo): %s", shooter_ns)
+            return
+
+        # 裁判端冷却：3 秒（每个 shooter 单独维护）
+        now = rospy.Time.now().to_sec()
+        if not hasattr(self, "_shooter_next_fire_time"):
+            self._shooter_next_fire_time = {}
+        next_allowed = float(self._shooter_next_fire_time.get(shooter_ns, 0.0))
+        COOLDOWN_S = 3.0
+        if now < next_allowed:
+            rospy.logwarn_throttle(2.0, "[referee] fire blocked (cooldown) shooter=%s wait=%.2fs",
+                                   shooter_ns, next_allowed - now)
+            return
+        # 扣弹药并更新位置（使用 fire_event 报文中的位姿）
+        shooter["ammo"] = max(0.0, old_ammo - 1.0)
+        shooter["x"] = float(msg.x)
+        shooter["y"] = float(msg.y)
+        shooter["yaw"] = float(msg.yaw)
+        shooter["last_update"] = now
+
+        # 设置下一次可开火时间
+        self._shooter_next_fire_time[shooter_ns] = now + COOLDOWN_S
+
+        # 产生 projectile 并加入管理（忽略地图障碍，命中由 step_projectiles 处理）
+        dir_x = math.cos(shooter["yaw"])
+        dir_y = math.sin(shooter["yaw"])
+        proj = {
+            "shooter_ns": shooter_ns,
+            "pos": [shooter["x"], shooter["y"]],
+            "dir": [dir_x, dir_y],
+            "speed": 10.0,
+            "power": float(self.fire_damage),
+            "spawn_time": now,
+        }
+        spawn_projectile(self, proj)
+
+# 绑定：保留原方法引用（以 __orig__ 前缀保存），再替换为新实现
+if hasattr(RefereeNode, "_on_fire_event"):
+    # 保留原实现以便调试 / 回退
+    if not hasattr(RefereeNode, "__orig__on_fire_event"):
+        RefereeNode.__orig__on_fire_event = RefereeNode._on_fire_event
+    RefereeNode._on_fire_event = _ref_on_fire_event
+else:
+    # 如果不存在原方法，则直接绑定新方法
+    RefereeNode._on_fire_event = _ref_on_fire_event
+
+# 绑定 spawn_projectile 与 step_projectiles（若不存在则添加）
+if not hasattr(RefereeNode, "spawn_projectile"):
+    RefereeNode.spawn_projectile = spawn_projectile
+if not hasattr(RefereeNode, "step_projectiles"):
+    RefereeNode.step_projectiles = step_projectiles
+
+# ------------------ 追加内容结束 ------------------
+
 def main():
     rospy.init_node("referee_node", anonymous=False)
 
