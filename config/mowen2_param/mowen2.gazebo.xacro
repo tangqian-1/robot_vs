@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot name="mowen2_sim" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!--
+    mowen2 Gazebo plugins
+    - planar_move: omnidirectional movement + odometry (mecanum wheel compatible)
+    - laser: ray sensor (libgazebo_ros_laser.so)
+    - imu: inertial measurement unit
+
+    Namespace isolation:
+    - robot_namespace xacro arg is passed from launch file
+    - planar_move uses robotNamespace to scope its ROS topics
+    - robot_state_publisher's tf_prefix scopes TF frames
+  -->
+
+  <!-- Base link material (white) -->
+  <gazebo reference="base_link">
+    <material>Gazebo/White</material>
+  </gazebo>
+
+  <!-- Wheel friction parameters -->
+  <gazebo reference="front_left_wheel">
+    <mu1>0.1</mu1>
+    <mu2>0.1</mu2>
+    <kp>500000.0</kp>
+    <kd>10.0</kd>
+    <minDepth>0.001</minDepth>
+    <maxVel>0.1</maxVel>
+    <material>Gazebo/FlatBlack</material>
+  </gazebo>
+
+  <gazebo reference="front_right_wheel">
+    <mu1>0.1</mu1>
+    <mu2>0.1</mu2>
+    <kp>500000.0</kp>
+    <kd>10.0</kd>
+    <minDepth>0.001</minDepth>
+    <maxVel>0.1</maxVel>
+    <material>Gazebo/FlatBlack</material>
+  </gazebo>
+
+  <gazebo reference="back_left_wheel">
+    <mu1>0.1</mu1>
+    <mu2>0.1</mu2>
+    <kp>500000.0</kp>
+    <kd>10.0</kd>
+    <minDepth>0.001</minDepth>
+    <maxVel>0.1</maxVel>
+    <material>Gazebo/FlatBlack</material>
+  </gazebo>
+
+  <gazebo reference="back_right_wheel">
+    <mu1>0.1</mu1>
+    <mu2>0.1</mu2>
+    <kp>500000.0</kp>
+    <kd>10.0</kd>
+    <minDepth>0.001</minDepth>
+    <maxVel>0.1</maxVel>
+    <material>Gazebo/FlatBlack</material>
+  </gazebo>
+
+  <!-- ============================================ -->
+  <!-- Planar Move Plugin                          -->
+  <!-- Omnidirectional movement + odometry         -->
+  <!-- Supports cmd_vel with linear.x, linear.y,   -->
+  <!-- angular.z (mecanum wheel compatible)        -->
+  <!-- ============================================ -->
+  <gazebo>
+    <plugin name="mowen2_planar_move" filename="libgazebo_ros_planar_move.so">
+      <robotNamespace>$(arg robot_namespace)</robotNamespace>
+      <commandTopic>cmd_vel</commandTopic>
+      <odometryTopic>odom</odometryTopic>
+      <odometryFrame>odom</odometryFrame>
+      <robotBaseFrame>base_footprint</robotBaseFrame>
+      <odometryRate>10.0</odometryRate>
+    </plugin>
+  </gazebo>
+
+  <!-- ============================================ -->
+  <!-- IMU Sensor                                   -->
+  <!-- ============================================ -->
+  <gazebo reference="imu_link">
+    <sensor type="imu" name="imu_sensor">
+      <always_on>true</always_on>
+      <update_rate>100</update_rate>
+    </sensor>
+    <material>Gazebo/FlatBlack</material>
+  </gazebo>
+
+  <gazebo>
+    <plugin name="mowen2_imu" filename="libgazebo_ros_imu.so">
+      <alwaysOn>true</alwaysOn>
+      <bodyName>imu_link</bodyName>
+      <frameName>imu_link</frameName>
+      <topicName>imu</topicName>
+      <serviceName>imu_service</serviceName>
+      <gaussianNoise>0.0</gaussianNoise>
+      <updateRate>0</updateRate>
+    </plugin>
+  </gazebo>
+
+  <!-- ============================================ -->
+  <!-- Laser Scanner (360 degree LIDAR)             -->
+  <!-- ============================================ -->
+  <gazebo reference="laser_link">
+    <material>Gazebo/FlatBlack</material>
+    <sensor type="ray" name="lds_sensor">
+      <pose>0 0 0 0 0 0</pose>
+      <visualize>false</visualize>
+      <update_rate>3</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>180</samples>
+            <resolution>1</resolution>
+            <min_angle>-1.5708</min_angle>
+            <max_angle>1.5708</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>0.120</min>
+          <max>3.5</max>
+          <resolution>0.015</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.01</stddev>
+        </noise>
+      </ray>
+      <plugin name="gazebo_ros_laser_controller" filename="libgazebo_ros_laser.so">
+        <topicName>scan</topicName>
+        <frameName>laser_link</frameName>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+</robot>

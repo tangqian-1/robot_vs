@@ -56,9 +56,13 @@ add_message_files(
   BattleMacroState.msg
   EnemyInfo.msg
   FireEvent.msg
+  GameState.msg
+  MatchRecord.msg
+  RobotMatchStat.msg
   RobotState.msg
   TaskCommand.msg
   TeamMacroState.msg
+  TeamMatchStat.msg
   VisibleEnemies.msg
 )
 

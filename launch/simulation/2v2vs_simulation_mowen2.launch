@@ -1,0 +1,22 @@
+<launch>
+	<!--
+	  2v2 仿真总入口（mowen2 万向轮版）
+	  启动流程：
+	    1. 仿真环境（mowen2 模型 + map_server + Gazebo）
+	    2. 裁判系统 (referee)
+	    3. 两队 Manager (red_manager + blue_manager)
+	    4. 四辆小车 agent (car_node)
+	  
+	  与 2v2vs_simulation.launch 区别：
+	    - 使用 mowen2 模型替代 turtlebot3
+	    - AMCL 使用全向运动模型 (omni)
+	    - move_base 使用 mowen_param 导航参数
+	  
+	  使用原版 turtlebot 仿真：
+	    roslaunch robot_vs simulation/2v2vs_simulation.launch
+	-->
+	<include file="$(find robot_vs)/launch/simulation/multi_robot_mowen2.launch" />
+	<include file="$(find robot_vs)/launch/manager/referee.launch" />
+	<include file="$(find robot_vs)/launch/manager/managers.launch" />
+	<include file="$(find robot_vs)/launch/car/cars4.launch" />
+</launch>

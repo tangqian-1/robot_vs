@@ -3,7 +3,8 @@
 import rospy
 import json
 
-class BattleStateFormatter(object):
+
+class BattleStateFormatter:
     """将原始战场状态转换为规划器输入。"""
 
     def build(self, battle_state, team_color, my_cars):

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.6
+#!/usr/bin/env python2.7
 #coding=utf-8
 import serial
 import roslib; roslib.load_manifest('mbot_bringup')

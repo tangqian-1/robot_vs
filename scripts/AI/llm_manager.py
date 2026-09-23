@@ -79,8 +79,8 @@ class LLMManager(object):
             "robot_ids": robot_ids,
             "required_output": {
                 "<robot_id>": {
-                    "action": "STOP | GOTO | ATTACK",
-                    "target": {"x": 0.0, "y": 0.0},
+                    "action": "STOP | GOTO | ATTACK| ROTATE",
+                    "target": {"x": 0.0, "y": 0.0, "yaw": 0.0},
                     "mode": "int",
                     "reason": "short string",
                     "timeout": "float",
@@ -298,10 +298,10 @@ def plan(payload=Body(default=None)):
     if not normalized_side:
         normalized_side = default_side
 
-    # print("[llm_manager] normalized request: robot_ids={}, battle_state_keys={}".format(
-    #     robot_ids,
-    #     list(battle_state.keys()) if isinstance(battle_state, dict) else [],
-    # ))
+    print("[llm_manager] normalized request: robot_ids={}, battle_state_keys={}".format(
+        robot_ids,
+        list(battle_state.keys()) if isinstance(battle_state, dict) else [],
+    ))
 
     try:
         manager = _get_manager(normalized_side)

@@ -1,0 +1,17 @@
+<launch>
+  <!-- 1. 核心参数 -->
+  <arg name="map_file" default="$(find robot_vs)/maps/map_real.yaml" doc="真机场地建好的地图"/>
+  <arg name="open_rviz" default="true" doc="是否自动启动RViz"/>
+
+  <!-- 2. 全局唯一地图服务器（真机只需要在上位机启动1次，所有小车共享） -->
+  <node name="map_server" pkg="map_server" type="map_server" output="screen"
+        args="$(arg map_file)" />
+
+  <!-- Real robot should not use simulated time -->
+  <param name="use_sim_time" value="false"/>
+
+  <!-- 3. 可选：启动RViz（真机调试用，不用可以关） -->
+  <node name="rviz" pkg="rviz" type="rviz" output="screen"
+        args="-d $(find robot_vs)/rviz/multi_robot.rviz"
+        if="$(arg open_rviz)"/>
+</launch>

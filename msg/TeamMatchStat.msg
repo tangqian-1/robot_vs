@@ -1,0 +1,9 @@
+# 单方阵营的对局统计
+string team
+RobotMatchStat[] robots
+uint32 total_kills
+uint32 total_deaths
+uint32 total_shots_fired
+uint32 total_hits_landed
+float32 total_damage_dealt
+float32 total_damage_taken

@@ -1,0 +1,97 @@
+<!-- roslaunch robot_vs robot_bringup.launch robot_namespace:=robot_blue -->
+
+<launch>
+  <arg name="robot_namespace" default="robot_blue" doc="Robot namespace"/>
+  <arg name="type" default="normal" doc="type [normal, modbus, hmodbus, can, hcan]"/>
+
+  <!-- Per-namespace default poses (override as needed) -->
+  <arg name="robot_red_x" default="0.116"/>
+  <arg name="robot_red_y" default="1.64"/>
+  <arg name="robot_red_a" default="-1.57"/>
+
+  <arg name="robot_red2_x" default="0.312"/>
+  <arg name="robot_red2_y" default="2.32"/>
+  <arg name="robot_red2_a" default="-1.57"/>
+
+  <arg name="robot_blue_x" default="-0.323"/>
+  <arg name="robot_blue_y" default="-1.35"/>
+  <arg name="robot_blue_a" default="1.57"/>
+
+  <arg name="robot_blue2_x" default="-0.415"/>
+  <arg name="robot_blue2_y" default="-2.03"/>
+  <arg name="robot_blue2_a" default="1.57"/>
+
+  <arg name="initial_pose_x" default="$(eval {'robot_red': arg('robot_red_x'), 'robot_red2': arg('robot_red2_x'), 'robot_blue': arg('robot_blue_x'), 'robot_blue2': arg('robot_blue2_x')}.get(arg('robot_namespace'), '0.0'))"/>
+  <arg name="initial_pose_y" default="$(eval {'robot_red': arg('robot_red_y'), 'robot_red2': arg('robot_red2_y'), 'robot_blue': arg('robot_blue_y'), 'robot_blue2': arg('robot_blue2_y')}.get(arg('robot_namespace'), '0.0'))"/>
+  <arg name="initial_pose_a" default="$(eval {'robot_red': arg('robot_red_a'), 'robot_red2': arg('robot_red2_a'), 'robot_blue': arg('robot_blue_a'), 'robot_blue2': arg('robot_blue2_a')}.get(arg('robot_namespace'), '0.0'))"/>
+
+  <arg name="car_config_file" default="$(eval {'robot_red': '$(find robot_vs)/config/car/red_car.yaml', 'robot_red2': '$(find robot_vs)/config/car/red_car.yaml', 'robot_blue': '$(find robot_vs)/config/car/blue_car.yaml', 'robot_blue2': '$(find robot_vs)/config/car/blue_car.yaml'}.get(arg('robot_namespace'), '$(find robot_vs)/config/car/blue_car.yaml'))"/>
+
+  <group ns="$(arg robot_namespace)">
+    <node pkg="car_bringup" type="newt.py" name="newt">
+      <remap from="/cmd_vel" to="cmd_vel"/>
+    </node>
+
+    <include file="$(find robot_vs)/launch/description/lslidar_serial.launch" >
+      <arg name="robot_namespace" value="$(arg robot_namespace)"/>
+    </include>
+
+    <param name="robot_description" textfile="$(find robot_vs)/config/mowen_param/mowen.urdf" />
+
+    <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher" output="screen">
+      <param name="publish_frequency" type="double" value="50.0"/>
+      <param name="tf_prefix" value="$(arg robot_namespace)"/>
+    </node>
+    <node pkg="joint_state_publisher" type="joint_state_publisher" name="joint_state_publisher" output="screen"/>
+
+    <node pkg="robot_vs" type="wit_$(arg type)_ros.py" name="imu" output="screen">
+      <param name="port" type="str" value="/dev/imu"/>
+      <param name="baud" type="int" value="9600"/>
+      <param name="frame_id" type="str" value="$(arg robot_namespace)/base_link"/>
+      <remap from="/wit/cali" to="wit/cali"/>
+      <remap from="/wit/imu" to="wit/imu"/>
+    </node>
+
+    <node pkg="robot_vs" name="pubv" type="pubv.py">
+      <remap from="/vel_raw" to="vel_raw"/>
+    </node>
+    <node pkg="car_bringup" type="base_node" name="odometry_publisher">
+      <param name="odom_frame" type="string" value="$(arg robot_namespace)/odom"/>
+      <param name="base_footprint_frame" type="string" value="$(arg robot_namespace)/base_footprint"/>
+      <param name="linear_scale_x" type="double" value="1.0"/>
+      <param name="linear_scale_y" type="double" value="1.0"/>
+      <remap from="/sub_vel" to="vel_raw"/>
+      <remap from="/pub_odom" to="odom_raw"/>
+    </node>
+
+    <node pkg="robot_localization" type="ekf_localization_node" name="ekf_localization" output="screen">
+      <remap from="odometry/filtered" to="odom"/>
+      <remap from="/imu0" to="wit/imu"/>
+      <remap from="/odom0" to="odom_raw"/>
+      <param name="odom_frame" value="$(arg robot_namespace)/odom"/>
+      <param name="world_frame" value="$(arg robot_namespace)/odom"/>
+      <param name="base_link_frame" value="$(arg robot_namespace)/base_footprint"/>
+      <rosparam command="load" file="$(find car_bringup)/param/robot_localization.yaml"/>
+      <param name="imu0_frame" value="$(arg robot_namespace)/base_link"/>
+    </node>
+  </group>
+
+  <include file="$(find robot_vs)/launch/real_world/amcl.launch">
+    <arg name="robot_namespace" value="$(arg robot_namespace)" />
+    <arg name="initial_pose_x" value="$(arg initial_pose_x)"/>
+    <arg name="initial_pose_y" value="$(arg initial_pose_y)"/>
+    <arg name="initial_pose_a" value="$(arg initial_pose_a)"/>
+  </include>
+
+  <include file="$(find robot_vs)/launch/real_world/move_base.launch">
+    <arg name="robot_namespace" value="$(arg robot_namespace)" />
+  </include>
+
+<!-- Car Ros System -->
+  <group ns="$(arg robot_namespace)">
+    <node pkg="robot_vs" type="car_node.py" name="car_agent" output="screen">
+      <rosparam command="load" file="$(arg car_config_file)" />
+    </node>
+  </group>
+
+</launch>

@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- mowen2 - mecanum wheel robot URDF (static version) -->
+<robot name="mowen2">
+
+  <link name="base_footprint"/>
+
+  <link name="base_link">
+    <inertial>
+      <origin xyz="-0.0718509386127855 0.00738215784490594 0.119676355791491" rpy="0 0 0"/>
+      <mass value="0.486218814966626"/>
+      <inertia ixx="0.00196277727666921" ixy="2.50447049446755E-07" ixz="0.000140534767811098"
+               iyy="0.00457256033711368" iyz="2.68618064993882E-07" izz="0.00493927269870476"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/mecanum/base_link.STL"/>
+      </geometry>
+      <material name="Green">
+        <color rgba="0 0.7 0 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/mecanum/base_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="base_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- front right wheel -->
+  <link name="front_right_wheel">
+    <inertial>
+      <origin xyz="-0.199063466201963 0.152786006806629 0.0710729630656461" rpy="0 0 0"/>
+      <mass value="0.051532"/>
+      <inertia ixx="1.4595E-05" ixy="-4.3975E-10" ixz="4.415E-10"
+               iyy="1.4594E-05" iyz="-1.7476E-09" izz="2.4264E-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/mecanum/front_right_wheel.STL"/>
+      </geometry>
+      <material name="White">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/mecanum/front_right_wheel.STL"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="front_right_joint" type="continuous">
+    <origin xyz="0.12721 -0.1454 0.048603" rpy="-1.5708 0 3.1416"/>
+    <parent link="base_link"/>
+    <child link="front_right_wheel"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <!-- front left wheel -->
+  <link name="front_left_wheel">
+    <inertial>
+      <origin xyz="-0.199119784807379 -0.138021691116814 0.071103918576079" rpy="0 0 0"/>
+      <mass value="0.051543"/>
+      <inertia ixx="1.4597E-05" ixy="-4.7945E-10" ixz="-2.4786E-10"
+               iyy="1.4598E-05" iyz="1.7972E-09" izz="2.4267E-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/mecanum/front_left_wheel.STL"/>
+      </geometry>
+      <material name="White">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/mecanum/front_left_wheel.STL"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="front_left_joint" type="continuous">
+    <origin xyz="0.12727 0.1454 0.048572" rpy="1.5708 0 0"/>
+    <parent link="base_link"/>
+    <child link="front_left_wheel"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <!-- back right wheel -->
+  <link name="back_right_wheel">
+    <inertial>
+      <origin xyz="0.00792558007520176 0.152786006806629 0.0712769954892365" rpy="0 0 0"/>
+      <mass value="0.051540174053366"/>
+      <inertia ixx="1.45974152250002E-05" ixy="1.94850559178397E-10" ixz="-1.61846387282284E-09"
+               iyy="1.4596501955693E-05" iyz="-6.27904057423818E-10" izz="2.42663091380451E-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/mecanum/back_right_wheel.STL"/>
+      </geometry>
+      <material name="White">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/mecanum/back_right_wheel.STL"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="back_right_joint" type="continuous">
+    <origin xyz="-0.079777 -0.1454 0.048399" rpy="-1.5708 0 3.1416"/>
+    <parent link="base_link"/>
+    <child link="back_right_wheel"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <!-- back left wheel -->
+  <link name="back_left_wheel">
+    <inertial>
+      <origin xyz="0.00789687485202048 -0.138021691116814 0.0710896498186508" rpy="0 0 0"/>
+      <mass value="0.0515309299357028"/>
+      <inertia ixx="1.45942986129926E-05" ixy="-3.19787215398093E-10" ixz="1.74943062058915E-09"
+               iyy="1.45948727598913E-05" iyz="1.61769812110049E-10" izz="2.4263683888153E-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/mecanum/back_left_wheel.STL"/>
+      </geometry>
+      <material name="White">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/mecanum/back_left_wheel.STL"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="back_left_joint" type="continuous">
+    <origin xyz="-0.079748 0.1454 0.048587" rpy="1.5708 0 0"/>
+    <parent link="base_link"/>
+    <child link="back_left_wheel"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <!-- IMU -->
+  <link name="imu_link">
+    <inertial>
+      <origin xyz="-0.216043303058216 -0.0052321578449091 -0.0162763557914886" rpy="0 0 0"/>
+      <mass value="0"/>
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/sensor/imu_link.STL"/>
+      </geometry>
+      <material name="White">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/sensor/imu_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="base_imu" type="fixed">
+    <origin xyz="0.14419 0.00215 0.1034" rpy="3.1416 0 0"/>
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+  </joint>
+
+  <!-- camera -->
+  <link name="camera_link">
+    <inertial>
+      <origin xyz="-0.220993303058215 0.00787952902341162 -0.0803035792325282" rpy="0 0 0"/>
+      <mass value="0"/>
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/sensor/camera_link.STL"/>
+      </geometry>
+      <material name="White">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/sensor/camera_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="camera_joint" type="fixed">
+    <origin xyz="0.14914 -0.00049737 0.19998" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+  </joint>
+
+  <!-- lidar -->
+  <link name="laser_link">
+    <inertial>
+      <origin xyz="-0.205591625169509 0.00738215784490645 -0.0163143442085112" rpy="0 0 0"/>
+      <mass value="0.0483909504209895"/>
+      <inertia ixx="1.58456966399128E-05" ixy="-4.23913983850005E-07" ixz="-2.09597897904374E-07"
+               iyy="3.89262522903605E-05" iyz="3.24809725932687E-07" izz="4.86230801106223E-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/sensor/laser_link.STL"/>
+      </geometry>
+      <material name="White">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robot_vs/config/mowen2_param/meshes/sensor/laser_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="laser_joint" type="fixed">
+    <origin xyz="0.13374 0 0.13599" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="laser_link"/>
+  </joint>
+
+</robot>

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2.7
 # -*- coding: utf-8 -*-
 
 import threading
@@ -9,8 +9,10 @@ from robot_vs.msg import TaskCommand
 from skills.base_skill import RUNNING, SUCCESS, FAILED
 from skill_manager import SkillManager
 
+from interfaces import BaseTaskEngine
 
-class TaskEngine(object):
+
+class TaskEngine(BaseTaskEngine):
     """维护当前任务并驱动技能执行。
 
      职责：
@@ -51,8 +53,8 @@ class TaskEngine(object):
                 return  # 相同 task_id 视为重复任务，直接忽略
 
             rospy.loginfo(
-                "[%s] TaskEngine: new task task_id=%d action=%s target=(%.2f, %.2f)",
-                self.ns, msg.task_id, msg.action_type, msg.target_x, msg.target_y,
+                "[%s] TaskEngine: new task task_id=%d action=%s target=(%.2f, %.2f, yaw=%.2f) ",
+                self.ns, msg.task_id, msg.action_type, msg.target_x, msg.target_y, msg.target_yaw
             )
 
             task_dict = {
@@ -60,6 +62,7 @@ class TaskEngine(object):
                 "action_type": msg.action_type,
                 "target_x": msg.target_x,
                 "target_y": msg.target_y,
+                "target_yaw": msg.target_yaw,
                 "mode": msg.mode,
                 "reason": msg.reason,
                 "timeout": msg.timeout,
@@ -78,6 +81,7 @@ class TaskEngine(object):
                 current_action=self._current_action,
                 task_status=self._task_status,
                 mode=int(msg.mode),
+                reason=str(msg.reason),
             )
 
     # ------------------------------------------------------------------
@@ -103,6 +107,7 @@ class TaskEngine(object):
                 current_action="NONE",
                 task_status="IDLE",
                 mode=0,
+                reason="",
             )
             return
 
@@ -120,6 +125,7 @@ class TaskEngine(object):
                 current_action=str(task.get("action_type", "NONE")).upper(),
                 task_status=FAILED,
                 mode=int(task.get("mode", 0)),
+                reason=str(task.get("reason", "timeout")),
             )
             return
 
@@ -137,6 +143,7 @@ class TaskEngine(object):
             current_action=self._current_action,
             task_status=self._task_status,
             mode=int(task.get("mode", 0)),
+            reason=str(task.get("reason", "")),
         )
 
     def _is_task_timeout(self, task, task_start_t):
@@ -156,6 +163,7 @@ class TaskEngine(object):
             "action_type": "STOP",
             "target_x": 0.0,
             "target_y": 0.0,
+            "target_yaw": 0.0,
             "mode": 0,
             "reason": "timeout",
             "timeout": 0.0,

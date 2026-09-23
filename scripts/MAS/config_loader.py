@@ -14,7 +14,7 @@ import copy
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Mapping, MutableMapping, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, MutableMapping, Optional, Tuple
 
 import yaml
 
@@ -81,7 +81,7 @@ class MASConfigBundle:
 	models: Dict[str, Any]
 	prompts: Dict[str, Any]
 
-
+### zhe ge lei bu zhi dao gan ma de !! change change
 class ConfigLoader:
 	"""Load MAS configs from local configs folder with legacy fallback support."""
 
@@ -140,7 +140,86 @@ class ConfigLoader:
 		self.root_dir = Path(root_dir).resolve() if root_dir is not None else package_root
 		self.configs_dir = self.root_dir / configs_dir_name
 		self.legacy_config_dir = self.root_dir.parents[1] / "config" / "MAS"
+		self.prompts_file_name = str(os.getenv("MAS_PROMPTS_FILE", "")).strip()
+		self.prompts_path_raw = str(os.getenv("MAS_PROMPTS_PATH", "")).strip()
+		self.prompts_file_name_by_side = {
+			"red": str(os.getenv("MAS_PROMPTS_FILE_RED", "")).strip(),
+			"blue": str(os.getenv("MAS_PROMPTS_FILE_BLUE", "")).strip(),
+		}
 		self._cache: Dict[Path, Tuple[int, Dict[str, Any]]] = {}
+
+	def _prompt_candidates(self, side: str = "") -> Tuple[Path, ...]:
+		candidates: List[Path] = []
+		side_tag = str(side or "").strip().lower()
+		if side_tag not in ("red", "blue"):
+			side_tag = ""
+
+		side_specific_name = ""
+		if side_tag:
+			side_specific_name = self.prompts_file_name_by_side.get(side_tag, "")
+
+		if side_specific_name:
+			candidates.append(self.configs_dir / side_tag / side_specific_name)
+			candidates.append(self.legacy_config_dir / side_tag / side_specific_name)
+
+		if self.prompts_path_raw:
+			prompt_path = Path(self.prompts_path_raw).expanduser()
+			if not prompt_path.is_absolute():
+				prompt_path = (self.root_dir / prompt_path).resolve()
+			candidates.append(prompt_path)
+
+		if self.prompts_file_name:
+			if side_tag:
+				candidates.append(self.configs_dir / side_tag / self.prompts_file_name)
+				candidates.append(self.legacy_config_dir / side_tag / self.prompts_file_name)
+			candidates.append(self.configs_dir / self.prompts_file_name)
+			candidates.append(self.legacy_config_dir / self.prompts_file_name)
+
+		# Default search order with legacy fallback compatibility.
+		if side_tag:
+			candidates.extend(
+				[
+					self.configs_dir / side_tag / "prompts.yaml",
+					self.legacy_config_dir / side_tag / "prompts.yaml",
+					self.legacy_config_dir / side_tag / "prompt.yaml",
+				]
+			)
+		candidates.extend(
+			[
+				self.configs_dir / "prompts.yaml",
+				self.legacy_config_dir / "prompts.yaml",
+				self.legacy_config_dir / "prompt.yaml",
+			]
+		)
+
+		if not side_tag:
+			# Allow per-side prompts-only layouts when a base prompts file is absent.
+			for fallback_side in ("red", "blue"):
+				specific_name = self.prompts_file_name_by_side.get(fallback_side, "")
+				if specific_name:
+					candidates.append(self.configs_dir / fallback_side / specific_name)
+					candidates.append(self.legacy_config_dir / fallback_side / specific_name)
+				if self.prompts_file_name:
+					candidates.append(self.configs_dir / fallback_side / self.prompts_file_name)
+					candidates.append(self.legacy_config_dir / fallback_side / self.prompts_file_name)
+				candidates.extend(
+					[
+						self.configs_dir / fallback_side / "prompts.yaml",
+						self.legacy_config_dir / fallback_side / "prompts.yaml",
+						self.legacy_config_dir / fallback_side / "prompt.yaml",
+					]
+				)
+
+		ordered_unique: List[Path] = []
+		seen = set()
+		for item in candidates:
+			key = str(item)
+			if key in seen:
+				continue
+			seen.add(key)
+			ordered_unique.append(item)
+
+		return tuple(ordered_unique)
 
 	def _load_yaml_with_cache(self, path: Path) -> Dict[str, Any]:
 		stat = path.stat()
@@ -220,11 +299,20 @@ class ConfigLoader:
 
 	def load_prompts(self) -> Dict[str, Any]:
 		candidate = self._first_existing(
-			(
-				self.configs_dir / "prompts.yaml",
-				self.legacy_config_dir / "prompts.yaml",
-				self.legacy_config_dir / "prompt.yaml",
-			),
+			self._prompt_candidates(),
+			label="prompts",
+		)
+		loaded = self._load_yaml_with_cache(candidate)
+		self._validate_prompts(loaded)
+		return loaded
+
+	def load_prompts_for_side(self, side: str) -> Dict[str, Any]:
+		normalized = str(side or "").strip().lower()
+		if normalized not in ("red", "blue"):
+			return self.load_prompts()
+
+		candidate = self._first_existing(
+			self._prompt_candidates(normalized),
 			label="prompts",
 		)
 		loaded = self._load_yaml_with_cache(candidate)

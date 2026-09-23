@@ -31,6 +31,23 @@ except ImportError:  # pragma: no cover
 		render_prompt,
 	)
 
+try:
+	from prompt_dto import (
+		build_enemies_in_sight,
+		build_my_state,
+		build_teammates,
+		build_team_context_dto,
+		compact_json,
+	)
+except ImportError:  # pragma: no cover
+	from .prompt_dto import (  # type: ignore
+		build_enemies_in_sight,
+		build_my_state,
+		build_teammates,
+		build_team_context_dto,
+		compact_json,
+	)
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +69,7 @@ class CarAgent:
 	  - immediate fallback when LLM call fails.
 	"""
 
-	ALLOWED_ACTIONS = {"STOP", "GOTO", "ATTACK"}
+	ALLOWED_ACTIONS = {"STOP", "GOTO", "ATTACK", "ROTATE"}
 
 	def __init__(
 		self,
@@ -87,6 +104,7 @@ class CarAgent:
 		)
 
 		self.reuse_last_task_s = max(0.0, float(reuse_last_task_s))
+		self._request_jitter_s = _stable_robot_jitter(self.robot_id)
 		self._lock = asyncio.Lock()
 		self._last_task: Dict[str, Any] = self._stop_task("init")
 		self._last_task_time_s = 0.0
@@ -103,6 +121,9 @@ class CarAgent:
 		now_s = time.time()
 
 		try:
+			if self._request_jitter_s > 0.0:
+				await asyncio.sleep(self._request_jitter_s)
+
 			messages = self._build_messages(
 				leader_order=leader_order,
 				local_state=safe_local,
@@ -110,13 +131,22 @@ class CarAgent:
 				side=side,
 			)
 			actions = await asyncio.wait_for(
-				self.llm_client.request_actions(messages=messages, profile=self.fast_profile),
-				timeout=max(0.35, self.fast_profile.timeout_s + 0.05),
+				self.llm_client.request_actions(
+					messages=messages,
+					profile=self.fast_profile,
+					trace_tag="car:{}".format(self.robot_id),
+				),
+				timeout=max(0.5, self.fast_profile.timeout_s + 0.5),
 			)
 			task = self._pick_and_normalize_task(actions)
 			used_fallback = False
 		except (asyncio.TimeoutError, LLMAPIError, LLMResponseFormatError, ValueError) as exc:
-			LOGGER.warning("CarAgent(%s) LLM action failed, using fast fallback: %s", self.robot_id, exc)
+			LOGGER.warning(
+				"CarAgent(%s) LLM action failed, using fast fallback: %s: %r",
+				self.robot_id,
+				type(exc).__name__,
+				exc,
+			)
 			last_task = await self._get_last_task_if_recent(now_s)
 			if last_task is not None:
 				task = copy.deepcopy(last_task)
@@ -175,20 +205,30 @@ class CarAgent:
 		if not template:
 			template = (
 				"LEADER_ORDER:\n{leader_order}\n\n"
-				"CAR_STATE_JSON:\n{car_state}\n\n"
-				"TEAM_CONTEXT_JSON:\n{team_context}\n"
+				"MY_STATE:\n{my_state}\n\n"
+				"TEAMMATES:\n{teammates}\n\n"
+				"ENEMIES_IN_SIGHT:\n{enemies_in_sight}\n"
 			)
+
+		my_state = build_my_state(local_state, robot_id=self.robot_id)
+		teammates = build_teammates(team_context, self_id=self.robot_id)
+		enemies_in_sight = build_enemies_in_sight(team_context)
+		team_context_dto = build_team_context_dto(
+			team_context,
+			self_id=self.robot_id,
+			teammates=teammates,
+			enemies_in_sight=enemies_in_sight,
+		)
 
 		user_prompt = render_prompt(
 			template,
 			leader_order=str(leader_order or ""),
-			car_state={
-				"robot_id": self.robot_id,
-				"side": _normalize_side(side),
-				"local_state": local_state,
-			},
-			team_context=team_context,
-			global_state=team_context,
+			my_state=compact_json(my_state),
+			teammates=compact_json(teammates),
+			enemies_in_sight=compact_json(enemies_in_sight),
+			car_state=compact_json(my_state),
+			team_context=compact_json(team_context_dto),
+			global_state=compact_json(team_context_dto),
 			stm_summary="",
 			ltm_summary="",
 		)
@@ -214,7 +254,8 @@ class CarAgent:
 		return self._normalize_task(selected)
 
 	def _normalize_task(self, raw: Mapping[str, Any]) -> Dict[str, Any]:
-		action = str(raw.get("action", "STOP")).strip().upper()
+		action = str(raw.get("action", raw.get("cmd", raw.get("type", "STOP")))).strip().upper()
+		action = _normalize_action_alias(action)
 		if action not in self.ALLOWED_ACTIONS:
 			action = "STOP"
 
@@ -224,6 +265,7 @@ class CarAgent:
 		target = {
 			"x": _as_float(target_raw.get("x", 0.0), 0.0),
 			"y": _as_float(target_raw.get("y", 0.0), 0.0),
+			"yaw": _as_float(target_raw.get("yaw", 0.0), 0.0),
 		}
 
 		mode_default = 0 if action == "STOP" else (2 if action == "ATTACK" else 1)
@@ -288,7 +330,7 @@ class CarAgent:
 	def _stop_task(self, reason: str) -> Dict[str, Any]:
 		return {
 			"action": "STOP",
-			"target": {"x": 0.0, "y": 0.0},
+			"target": {"x": 0.0, "y": 0.0, "yaw": 0.0},
 			"mode": 0,
 			"reason": str(reason),
 			"timeout": 1.5,
@@ -346,6 +388,17 @@ def _as_float(value: Any, default: float) -> float:
 		return float(value)
 	except (TypeError, ValueError):
 		return float(default)
+
+
+def _stable_robot_jitter(robot_id: str) -> float:
+	"""Spread robots across a small time window to avoid bursty simultaneous requests."""
+	text = str(robot_id or "").strip()
+	if not text:
+		return 0.0
+
+	# Keep the jitter small so the control loop still feels responsive.
+	# 0.0s to 0.9s in 0.1s steps is enough to separate four robots.
+	return (sum(ord(ch) for ch in text) % 10) / 10.0
 
 
 def _as_int(value: Any, default: int) -> int:
@@ -423,6 +476,33 @@ def _extract_safe_point(local_state: Mapping[str, Any]) -> Dict[str, float]:
 				"y": _as_float(point.get("y", 0.0), 0.0),
 			}
 	return {"x": 0.0, "y": 0.0}
+
+
+def _normalize_action_alias(action: str) -> str:
+	value = str(action or "").strip().upper()
+	if not value:
+		return "STOP"
+
+	alias = {
+		"MOVE": "GOTO",
+		"GO": "GOTO",
+		"GO_TO": "GOTO",
+		"NAV": "GOTO",
+		"NAVIGATE": "GOTO",
+		"PATROL": "GOTO",
+		"FIRE": "ATTACK",
+		"SHOOT": "ATTACK",
+		"ENGAGE": "ATTACK",
+		"IDLE": "STOP",
+		"HOLD": "STOP",
+		"WAIT": "STOP",
+		"TURN": "ROTATE",
+		"ROT": "ROTATE",
+		"LOOK": "ROTATE",
+		"SCAN": "ROTATE",
+		"OBSERVE": "ROTATE",
+	}
+	return alias.get(value, value)
 
 
 __all__ = [

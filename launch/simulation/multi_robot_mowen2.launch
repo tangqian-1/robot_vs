@@ -1,0 +1,163 @@
+<launch>
+  <!--
+    mowen2 万向轮版多机仿真（4台机器人：2红2蓝）
+    与 multi_robot4.launch 区别：
+    - 使用 mowen2 模型（config/mowen2_param/）替代 turtlebot3
+    - 导航参数使用 mowen_param（已配 holonomic_robot: true）
+    - 激光 frame 使用 laser_link
+  -->
+
+  <!-- 地图与仿真世界 -->
+  <arg name="map_file" default="$(find robot_vs)/maps/map_simulation3.yaml"/>
+  <arg name="world_file" default="$(find robot_vs)/worlds/world_6x8_empty.world"/>
+
+  <!-- 红蓝方初始位姿参数 -->
+  <arg name="robot_red_x" default="-1.0"/>
+  <arg name="robot_red_y" default="1.0"/>
+  <arg name="robot_red_a" default="-1.57"/>
+
+  <arg name="robot_red2_x" default="1.0"/>
+  <arg name="robot_red2_y" default="1.0"/>
+  <arg name="robot_red2_a" default="-1.57"/>
+
+  <arg name="robot_blue_x" default="2.0"/>
+  <arg name="robot_blue_y" default="-3.0"/>
+  <arg name="robot_blue_a" default="1.57"/>
+
+  <arg name="robot_blue2_x" default="-2.0"/>
+  <arg name="robot_blue2_y" default="-3.0"/>
+  <arg name="robot_blue2_a" default="1.57"/>
+
+  <!-- 1. map_server -->
+  <node name="map_server" pkg="map_server" type="map_server" output="screen"
+        args="$(arg map_file)" />
+
+  <!-- 2. Gazebo 仿真环境（必备：提供里程计和激光数据） -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(arg world_file)"/>
+    <arg name="paused" value="false"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="gui" value="false"/>
+  </include>
+
+  <!-- ============================================== -->
+  <!-- 红方机器人1 robot_red -->
+  <!-- ============================================== -->
+  <group ns="robot_red">
+    <!-- Global tf_prefix parameter for Gazebo plugins (planar_move, etc.) -->
+    <param name="tf_prefix" value="robot_red"/>
+    <param name="robot_description" command="$(find xacro)/xacro --inorder $(find robot_vs)/config/mowen2_param/mowen2.urdf.xacro robot_namespace:=robot_red" />
+    <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher" output="screen">
+      <param name="publish_frequency" type="double" value="10.0"/>
+      <param name="tf_prefix" value="robot_red"/>
+    </node>
+    <node pkg="joint_state_publisher" type="joint_state_publisher" name="joint_state_publisher" output="screen">
+      <param name="use_gui" value="false"/>
+    </node>
+    <!-- 在 Gazebo 中生成模型 -->
+    <node name="spawn_urdf" pkg="gazebo_ros" type="spawn_model" output="screen"
+          args="-urdf -model robot_red -x $(arg robot_red_x) -y $(arg robot_red_y) -z 0.0 -Y $(arg robot_red_a) -param /robot_red/robot_description"/>
+  </group>
+
+  <include file="$(find robot_vs)/launch/simulation/amcl_mowen2.launch">
+    <arg name="robot_namespace" value="robot_red" />
+    <arg name="initial_pose_x" value="$(arg robot_red_x)"/>
+    <arg name="initial_pose_y" value="$(arg robot_red_y)"/>
+    <arg name="initial_pose_a" value="$(arg robot_red_a)"/>
+  </include>
+
+  <include file="$(find robot_vs)/launch/simulation/move_base_mowen2.launch">
+    <arg name="robot_namespace" value="robot_red" />
+  </include>
+
+  <!-- ============================================== -->
+  <!-- 红方机器人2 robot_red2 -->
+  <!-- ============================================== -->
+  <group ns="robot_red2">
+    <!-- Global tf_prefix parameter for Gazebo plugins -->
+    <param name="tf_prefix" value="robot_red2"/>
+    <param name="robot_description" command="$(find xacro)/xacro --inorder $(find robot_vs)/config/mowen2_param/mowen2.urdf.xacro robot_namespace:=robot_red2" />
+    <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher" output="screen">
+      <param name="publish_frequency" type="double" value="10.0"/>
+      <param name="tf_prefix" value="robot_red2"/>
+    </node>
+    <node pkg="joint_state_publisher" type="joint_state_publisher" name="joint_state_publisher" output="screen">
+      <param name="use_gui" value="false"/>
+    </node>
+    <node name="spawn_urdf" pkg="gazebo_ros" type="spawn_model" output="screen"
+          args="-urdf -model robot_red2 -x $(arg robot_red2_x) -y $(arg robot_red2_y) -z 0.0 -Y $(arg robot_red2_a) -param /robot_red2/robot_description"/>
+  </group>
+
+  <include file="$(find robot_vs)/launch/simulation/amcl_mowen2.launch">
+    <arg name="robot_namespace" value="robot_red2" />
+    <arg name="initial_pose_x" value="$(arg robot_red2_x)"/>
+    <arg name="initial_pose_y" value="$(arg robot_red2_y)"/>
+    <arg name="initial_pose_a" value="$(arg robot_red2_a)"/>
+  </include>
+
+  <include file="$(find robot_vs)/launch/simulation/move_base_mowen2.launch">
+    <arg name="robot_namespace" value="robot_red2" />
+  </include>
+
+  <!-- ============================================== -->
+  <!-- 蓝方机器人1 robot_blue -->
+  <!-- ============================================== -->
+  <group ns="robot_blue">
+    <!-- Global tf_prefix parameter for Gazebo plugins -->
+    <param name="tf_prefix" value="robot_blue"/>
+    <param name="robot_description" command="$(find xacro)/xacro --inorder $(find robot_vs)/config/mowen2_param/mowen2.urdf.xacro robot_namespace:=robot_blue" />
+    <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher" output="screen">
+      <param name="publish_frequency" type="double" value="10.0"/>
+      <param name="tf_prefix" value="robot_blue"/>
+    </node>
+    <node pkg="joint_state_publisher" type="joint_state_publisher" name="joint_state_publisher" output="screen">
+      <param name="use_gui" value="false"/>
+    </node>
+    <node name="spawn_urdf" pkg="gazebo_ros" type="spawn_model" output="screen"
+          args="-urdf -model robot_blue -x $(arg robot_blue_x) -y $(arg robot_blue_y) -z 0.0 -Y $(arg robot_blue_a) -param /robot_blue/robot_description"/>
+  </group>
+
+  <include file="$(find robot_vs)/launch/simulation/amcl_mowen2.launch">
+    <arg name="robot_namespace" value="robot_blue" />
+    <arg name="initial_pose_x" value="$(arg robot_blue_x)"/>
+    <arg name="initial_pose_y" value="$(arg robot_blue_y)"/>
+    <arg name="initial_pose_a" value="$(arg robot_blue_a)"/>
+  </include>
+
+  <include file="$(find robot_vs)/launch/simulation/move_base_mowen2.launch">
+    <arg name="robot_namespace" value="robot_blue" />
+  </include>
+
+  <!-- ============================================== -->
+  <!-- 蓝方机器人2 robot_blue2 -->
+  <!-- ============================================== -->
+  <group ns="robot_blue2">
+    <!-- Global tf_prefix parameter for Gazebo plugins -->
+    <param name="tf_prefix" value="robot_blue2"/>
+    <param name="robot_description" command="$(find xacro)/xacro --inorder $(find robot_vs)/config/mowen2_param/mowen2.urdf.xacro robot_namespace:=robot_blue2" />
+    <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher" output="screen">
+      <param name="publish_frequency" type="double" value="10.0"/>
+      <param name="tf_prefix" value="robot_blue2"/>
+    </node>
+    <node pkg="joint_state_publisher" type="joint_state_publisher" name="joint_state_publisher" output="screen">
+      <param name="use_gui" value="false"/>
+    </node>
+    <node name="spawn_urdf" pkg="gazebo_ros" type="spawn_model" output="screen"
+          args="-urdf -model robot_blue2 -x $(arg robot_blue2_x) -y $(arg robot_blue2_y) -z 0.0 -Y $(arg robot_blue2_a) -param /robot_blue2/robot_description"/>
+  </group>
+
+  <include file="$(find robot_vs)/launch/simulation/amcl_mowen2.launch">
+    <arg name="robot_namespace" value="robot_blue2" />
+    <arg name="initial_pose_x" value="$(arg robot_blue2_x)"/>
+    <arg name="initial_pose_y" value="$(arg robot_blue2_y)"/>
+    <arg name="initial_pose_a" value="$(arg robot_blue2_a)"/>
+  </include>
+
+  <include file="$(find robot_vs)/launch/simulation/move_base_mowen2.launch">
+    <arg name="robot_namespace" value="robot_blue2" />
+  </include>
+
+  <!-- RViz -->
+  <node name="rviz" pkg="rviz" type="rviz" output="screen"
+        args="-d $(find robot_vs)/rviz/multi_robot.rviz"/>
+</launch>

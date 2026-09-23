@@ -1,8 +1,25 @@
 <launch>
   <!-- 1. 核心参数 -->
   <arg name="model" default="$(env TURTLEBOT3_MODEL)" doc="burger, waffle, waffle_pi"/>
-  <arg name="map_file" default="$(find robot_vs)/maps/map_simulation.yaml" doc="全局地图路径"/>
-  <arg name="world_file" default="$(find robot_vs)/worlds/world0.world" doc="仿真世界"/>
+  <arg name="map_file" default="$(find robot_vs)/maps/map_simulation3.yaml" doc="全局地图路径"/>
+  <arg name="world_file" default="$(find robot_vs)/worlds/world_6x8_empty.world" doc="仿真世界"/>
+
+  <!-- 红蓝方初始位姿参数 -->
+  <arg name="robot_red_x" default="-1.0"/>
+  <arg name="robot_red_y" default="1.0"/>
+  <arg name="robot_red_a" default="-1.57"/>
+
+  <arg name="robot_red2_x" default="1.0"/>
+  <arg name="robot_red2_y" default="1.0"/>
+  <arg name="robot_red2_a" default="-1.57"/>
+
+  <arg name="robot_blue_x" default="2.0"/>
+  <arg name="robot_blue_y" default="-3.0"/>
+  <arg name="robot_blue_a" default="1.57"/>
+
+  <arg name="robot_blue2_x" default="-2.0"/>
+  <arg name="robot_blue2_y" default="-3.0"/>
+  <arg name="robot_blue2_a" default="1.57"/>
 
   <!-- 2. 最先启动map_server -->
   <node name="map_server" pkg="map_server" type="map_server" output="screen"
@@ -32,15 +49,15 @@
 
     <!-- 4.3 在Gazebo中生成红方机器人 -->
     <node name="spawn_urdf" pkg="gazebo_ros" type="spawn_model" output="screen"
-          args="-urdf -model robot_red -x -2.0 -y 0.5 -z 0.0 -Y 0.0 -param /robot_red/robot_description"/>
+          args="-urdf -model robot_red -x $(arg robot_red_x) -y $(arg robot_red_y) -z 0.0 -Y $(arg robot_red_a) -param /robot_red/robot_description"/>
   </group>
 
   <!-- 4.4 启动红方AMCL -->
   <include file="$(find robot_vs)/launch/simulation/amcl.launch">
     <arg name="robot_namespace" value="robot_red" />
-    <arg name="initial_pose_x" value="-2.0"/>
-    <arg name="initial_pose_y" value="0.5"/>
-    <arg name="initial_pose_a" value="0.0"/>
+    <arg name="initial_pose_x" value="$(arg robot_red_x)"/>
+    <arg name="initial_pose_y" value="$(arg robot_red_y)"/>
+    <arg name="initial_pose_a" value="$(arg robot_red_a)"/>
   </include>
 
   <!-- 4.5 启动红方move_base -->
@@ -59,14 +76,14 @@
     </node>
     <node pkg="joint_state_publisher" type="joint_state_publisher" name="joint_state_publisher" output="screen"/>
     <node name="spawn_urdf" pkg="gazebo_ros" type="spawn_model" output="screen"
-          args="-urdf -model robot_red2 -x -2.0 -y -0.5 -z 0.0 -Y 0.0 -param /robot_red2/robot_description"/>
+          args="-urdf -model robot_red2 -x $(arg robot_red2_x) -y $(arg robot_red2_y) -z 0.0 -Y $(arg robot_red2_a) -param /robot_red2/robot_description"/>
   </group>
 
   <include file="$(find robot_vs)/launch/simulation/amcl.launch">
     <arg name="robot_namespace" value="robot_red2" />
-    <arg name="initial_pose_x" value="-2.0"/>
-    <arg name="initial_pose_y" value="-0.5"/>
-    <arg name="initial_pose_a" value="0.0"/>
+    <arg name="initial_pose_x" value="$(arg robot_red2_x)"/>
+    <arg name="initial_pose_y" value="$(arg robot_red2_y)"/>
+    <arg name="initial_pose_a" value="$(arg robot_red2_a)"/>
   </include>
 
   <include file="$(find robot_vs)/launch/simulation/move_base.launch">
@@ -89,15 +106,15 @@
 
     <!-- 5.3 在Gazebo中生成蓝方机器人 -->
     <node name="spawn_urdf" pkg="gazebo_ros" type="spawn_model" output="screen"
-          args="-urdf -model robot_blue -x 2.0 -y 0.5 -z 0.0 -Y 3.14 -param /robot_blue/robot_description"/>
+          args="-urdf -model robot_blue -x $(arg robot_blue_x) -y $(arg robot_blue_y) -z 0.0 -Y $(arg robot_blue_a) -param /robot_blue/robot_description"/>
   </group>
 
   <!-- 5.4 启动蓝方AMCL -->
   <include file="$(find robot_vs)/launch/simulation/amcl.launch">
     <arg name="robot_namespace" value="robot_blue" />
-    <arg name="initial_pose_x" value="2.0"/>
-    <arg name="initial_pose_y" value="0.5"/>
-    <arg name="initial_pose_a" value="3.14"/>
+    <arg name="initial_pose_x" value="$(arg robot_blue_x)"/>
+    <arg name="initial_pose_y" value="$(arg robot_blue_y)"/>
+    <arg name="initial_pose_a" value="$(arg robot_blue_a)"/>
   </include>
 
   <!-- 5.5 启动蓝方move_base -->
@@ -116,13 +133,13 @@
     </node>
     <node pkg="joint_state_publisher" type="joint_state_publisher" name="joint_state_publisher" output="screen"/>
     <node name="spawn_urdf" pkg="gazebo_ros" type="spawn_model" output="screen"
-          args="-urdf -model robot_blue2 -x 2.0 -y -0.5 -z 0.0 -Y 3.14 -param /robot_blue2/robot_description"/>
+          args="-urdf -model robot_blue2 -x $(arg robot_blue2_x) -y $(arg robot_blue2_y) -z 0.0 -Y $(arg robot_blue2_a) -param /robot_blue2/robot_description"/>
   </group>
   <include file="$(find robot_vs)/launch/simulation/amcl.launch">
     <arg name="robot_namespace" value="robot_blue2" />
-    <arg name="initial_pose_x" value="2.0"/>
-    <arg name="initial_pose_y" value="-0.5"/>
-    <arg name="initial_pose_a" value="3.14"/>
+    <arg name="initial_pose_x" value="$(arg robot_blue2_x)"/>
+    <arg name="initial_pose_y" value="$(arg robot_blue2_y)"/>
+    <arg name="initial_pose_a" value="$(arg robot_blue2_a)"/>
   </include>
   <include file="$(find robot_vs)/launch/simulation/move_base.launch">
     <arg name="robot_namespace" value="robot_blue2" />

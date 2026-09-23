@@ -5,7 +5,7 @@
   <!-- 2. 启动你的自定义Gazebo世界（替换成你的世界文件路径） -->
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
     <!-- 关键：替换成你自己的gazebo世界文件（.world） -->
-    <arg name="world_name" value="$(find robot_vs)/worlds/world0.world"/>
+    <arg name="world_name" value="$(find robot_vs)/worlds/world_6x8_empty.world"/>
     <arg name="paused"      value="false"/>
     <arg name="use_sim_time" value="true"/>
     <arg name="gui"         value="true"/>
@@ -23,7 +23,7 @@
 
   <!-- 5. 启动nav控制（手动遥控机器人建图） -->
   <include file="$(find turtlebot3_navigation)/launch/turtlebot3_navigation.launch">
-    <arg name="map_file" value="$(find robot_vs)/maps/map.yaml"/>
+    <arg name="map_file" value="$(find robot_vs)/maps/map_real.yaml"/>
   </include>
 
 </launch>

@@ -1,4 +1,0 @@
-<launch>
-  <!-- 启动红方TeamManager主节点 -->
-  <node name="red_manager" pkg="robot_vs" type="red_manager.py" output="screen"/>
-</launch>

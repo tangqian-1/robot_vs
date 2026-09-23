@@ -29,6 +29,11 @@ except ImportError:  # pragma: no cover
 	)
 
 try:
+	from prompt_dto import build_team_context_dto, compact_json
+except ImportError:  # pragma: no cover
+	from .prompt_dto import build_team_context_dto, compact_json  # type: ignore
+
+try:
 	from memory.ltm import LongTermMemory
 	from memory.stm import ShortTermMemory
 except ImportError:  # pragma: no cover
@@ -109,22 +114,29 @@ class LeaderAgent:
 					)
 
 			stm_summary = await self.stm.summarize(max_lines=8)
-			ltm_summary = await self.ltm.summarize(limit=6, tags=[normalized_side] if normalized_side else None)
+			ltm_records = await self.ltm.raw_text(max_lines=200, max_chars=8000)
 
 			used_fallback = False
 			try:
 				messages = self._build_messages(
 					global_state=safe_state,
 					stm_summary=stm_summary,
-					ltm_summary=ltm_summary,
+					ltm_records=ltm_records,
 				)
-				raw_text = await self.llm_client.request_text(messages=messages, profile=self.profile)
+				raw_text = await self.llm_client.request_text(
+					messages=messages,
+					profile=self.profile,
+					trace_tag="leader:{}".format(normalized_side or "unknown"),
+				)
 			except (LLMAPIError, LLMResponseFormatError, ValueError) as exc:
 				LOGGER.warning("LeaderAgent LLM plan failed, using fallback strategy: %s", exc)
 				raw_text = self._fallback_strategy_text(safe_state, stm_summary)
 				used_fallback = True
 
 			normalized_text = self._normalize_order_text(raw_text)
+
+			# LOGGER.info("LeaderAgent(side=%s) order=%s", normalized_side or "unknown", normalized_text)
+			
 			plan = LeaderPlan(
 				order_text=normalized_text,
 				generated_at_s=now_s,
@@ -133,25 +145,6 @@ class LeaderAgent:
 				used_fallback=used_fallback,
 			)
 			self._last_plan = plan
-
-		# Persist compact strategic trace to LTM outside lock.
-		tags = ["leader", "strategy"]
-		if normalized_side:
-			tags.append(normalized_side)
-		try:
-			await self.ltm.add_record(
-				record_type="leader_order",
-				summary=_truncate(normalized_text, 220),
-				payload={
-					"side": normalized_side,
-					"used_fallback": used_fallback,
-				},
-				tags=tags,
-				score=0.8,
-				persist=True,
-			)
-		except Exception as exc:  # pragma: no cover
-			LOGGER.warning("LeaderAgent failed to persist LTM record: %s", exc)
 
 		return plan
 
@@ -165,7 +158,7 @@ class LeaderAgent:
 			return cfg
 		return {}
 
-	def _build_messages(self, global_state: Mapping[str, Any], stm_summary: str, ltm_summary: str) -> Sequence[Dict[str, str]]:
+	def _build_messages(self, global_state: Mapping[str, Any], stm_summary: str, ltm_records: str) -> Sequence[Dict[str, str]]:
 		cfg = self._leader_prompt_cfg()
 		system_prompt = str(cfg.get("system_prompt", "")).strip()
 		if not system_prompt:
@@ -179,14 +172,16 @@ class LeaderAgent:
 			template = (
 				"GLOBAL_STATE_JSON:\n{global_state}\n\n"
 				"SHORT_TERM_MEMORY:\n{stm_summary}\n\n"
-				"LONG_TERM_MEMORY:\n{ltm_summary}\n"
+				"LONG_TERM_MEMORY_JSONL:\n{ltm_records}\n"
 			)
+
+		compact_state = build_team_context_dto(global_state)
 
 		user_prompt = render_prompt(
 			template,
-			global_state=global_state,
+			global_state=compact_json(compact_state),
 			stm_summary=stm_summary,
-			ltm_summary=ltm_summary,
+			ltm_records=ltm_records,
 		)
 		return build_messages(system_prompt=system_prompt, user_prompt=user_prompt)
 

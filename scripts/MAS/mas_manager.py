@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import copy
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -43,6 +44,7 @@ class SideMASRuntime:
 		prompts_cfg: Mapping[str, Any],
 		ltm_storage_path: Optional[Path] = None,
 		stm_window_size: int = 16,
+		ltm_enabled: Optional[bool] = None,
 	) -> None:
 		normalized_side = _normalize_side(side)
 		if not normalized_side:
@@ -58,9 +60,25 @@ class SideMASRuntime:
 			runtime_cfg = {}
 		self.leader_interval_s = max(0.5, _as_float(runtime_cfg.get("leader_loop_interval_s", 5.0), 5.0))
 		self.car_interval_s = max(0.2, _as_float(runtime_cfg.get("car_loop_interval_s", 1.0), 1.0))
+		initial_order = str(runtime_cfg.get("initial_leader_order", "")).strip()
+		if not initial_order:
+			initial_order = "Hold position, maintain spacing, rotate to scan."
+		self.initial_leader_order_text = initial_order
+
+		configured_ltm = _as_bool(runtime_cfg.get("enable_ltm", True), True)
+		env_disable_ltm = _as_bool(os.getenv("MAS_DISABLE_LTM"), False)
+		env_enable_ltm = _as_bool(os.getenv("MAS_ENABLE_LTM"), False)
+		if ltm_enabled is None:
+			self.ltm_enabled = configured_ltm
+			if env_disable_ltm:
+				self.ltm_enabled = False
+			if env_enable_ltm:
+				self.ltm_enabled = True
+		else:
+			self.ltm_enabled = bool(ltm_enabled)
 
 		self.stm = ShortTermMemory(max_items=max(4, int(stm_window_size)))
-		self.ltm = LongTermMemory(storage_path=ltm_storage_path)
+		self.ltm = LongTermMemory(storage_path=ltm_storage_path, enabled=self.ltm_enabled)
 		self.leader_agent = LeaderAgent(
 			llm_client=self.llm_client,
 			models_cfg=self.models_cfg,
@@ -178,6 +196,7 @@ class SideMASRuntime:
 			"robot_count": len(robot_ids),
 			"task_count": len(tasks),
 			"has_state": bool(state),
+			"ltm_enabled": self.ltm_enabled,
 			"task_age_s": max(0.0, time.time() - tasks_ts) if tasks_ts > 0 else None,
 			"leader_age_s": max(0.0, time.time() - leader_ts) if leader_ts > 0 else None,
 			"car_agents": sorted(self._car_agents.keys()),
@@ -228,7 +247,7 @@ class SideMASRuntime:
 			car_agents = await self._ensure_car_agents(robot_ids)
 			leader_order, leader_ts = await self._get_leader_snapshot()
 			if (not leader_order.strip()) or (leader_ts <= 0):
-				leader_order = "Prioritize survival, maintain spacing, and attack only with advantage."
+				leader_order = self.initial_leader_order_text
 
 			local_state_by_robot = _build_local_state_by_robot(
 				side=self.side,
@@ -252,7 +271,7 @@ class SideMASRuntime:
 			return tasks
 
 	async def _ensure_car_agents(self, robot_ids: Sequence[str]) -> List[CarAgent]:
-		fast_timeout_s = max(0.35, min(2.0, self.car_interval_s * 0.85))
+		fast_timeout_s = max(0.35, self.car_interval_s)
 		async with self._agent_lock:
 			for robot_id in robot_ids:
 				if robot_id in self._car_agents:
@@ -304,28 +323,56 @@ class HierarchicalMASManager:
 		self,
 		models_cfg: Mapping[str, Any],
 		prompts_cfg: Mapping[str, Any],
+		prompts_by_side: Optional[Mapping[str, Mapping[str, Any]]] = None,
 		enabled_sides: Sequence[str] = ("red", "blue"),
 		ltm_dir: Optional[Path] = None,
+		ltm_enabled: Optional[bool] = None,
 	) -> None:
 		self.models_cfg = dict(models_cfg)
 		self.prompts_cfg = dict(prompts_cfg)
+		self.prompts_by_side: Dict[str, Dict[str, Any]] = {}
+		if prompts_by_side:
+			for key, value in prompts_by_side.items():
+				if isinstance(value, Mapping):
+					self.prompts_by_side[str(key)] = dict(value)
 
 		self.enabled_sides = [s for s in (_normalize_side(x) for x in enabled_sides) if s]
 		if not self.enabled_sides:
 			raise ValueError("enabled_sides must include red and/or blue")
 
-		self.llm_client = AsyncLLMClient.from_models_config(self.models_cfg)
-
 		base_ltm_dir = Path(ltm_dir) if ltm_dir is not None else (Path(__file__).resolve().parent / "memory" / "data")
+		self._llm_clients: Dict[str, AsyncLLMClient] = {}
 		self._runtimes: Dict[str, SideMASRuntime] = {}
 		for side in self.enabled_sides:
+			side_models_cfg = _resolve_side_models_cfg(self.models_cfg, side)
+			side_prompts_cfg = _resolve_side_prompts(self.prompts_cfg, self.prompts_by_side, side)
+			side_llm_cfg = side_models_cfg.get("llm", {})
+			if not isinstance(side_llm_cfg, Mapping):
+				side_llm_cfg = {}
+
+			llm_client = AsyncLLMClient.from_models_config(side_models_cfg)
+			self._llm_clients[side] = llm_client
+
 			side_path = base_ltm_dir / "ltm_{}.jsonl".format(side)
 			self._runtimes[side] = SideMASRuntime(
 				side=side,
-				llm_client=self.llm_client,
-				models_cfg=self.models_cfg,
-				prompts_cfg=self.prompts_cfg,
+				llm_client=llm_client,
+				models_cfg=side_models_cfg,
+				prompts_cfg=side_prompts_cfg,
 				ltm_storage_path=side_path,
+				ltm_enabled=ltm_enabled,
+			)
+
+			leader_cfg = side_models_cfg.get("leader_model", {})
+			leader_model_name = ""
+			if isinstance(leader_cfg, Mapping):
+				leader_model_name = str(leader_cfg.get("name", ""))
+			LOGGER.info(
+				"Side config resolved: side=%s model=%s base_url=%s api_key_source=%s",
+				side,
+				leader_model_name,
+				side_llm_cfg.get("base_url", ""),
+				side_llm_cfg.get("api_key_source", "unknown"),
 			)
 
 		self._started = False
@@ -337,14 +384,21 @@ class HierarchicalMASManager:
 		configs_root: Optional[Path] = None,
 		enabled_sides: Sequence[str] = ("red", "blue"),
 		ltm_dir: Optional[Path] = None,
+		ltm_enabled: Optional[bool] = None,
 	) -> "HierarchicalMASManager":
 		loader = ConfigLoader(root_dir=configs_root)
 		bundle = loader.load_all()
+		prompts_by_side = {
+			"red": loader.load_prompts_for_side("red"),
+			"blue": loader.load_prompts_for_side("blue"),
+		}
 		return cls(
 			models_cfg=bundle.models,
 			prompts_cfg=bundle.prompts,
+			prompts_by_side=prompts_by_side,
 			enabled_sides=enabled_sides,
 			ltm_dir=ltm_dir,
+			ltm_enabled=ltm_enabled,
 		)
 
 	async def start(self) -> None:
@@ -362,7 +416,19 @@ class HierarchicalMASManager:
 				return
 			for runtime in self._runtimes.values():
 				await runtime.stop()
-			await self.llm_client.close()
+
+			closed_client_ids = set()
+			for side in list(self._llm_clients.keys()):
+				client = self._llm_clients.get(side)
+				if client is None:
+					continue
+				client_id = id(client)
+				if client_id in closed_client_ids:
+					continue
+				await client.close()
+				closed_client_ids.add(client_id)
+			self._llm_clients = {}
+
 			self._started = False
 			LOGGER.info("HierarchicalMASManager stopped")
 
@@ -405,6 +471,73 @@ def _as_float(value: Any, default: float) -> float:
 		return float(value)
 	except (TypeError, ValueError):
 		return float(default)
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+	if isinstance(value, bool):
+		return value
+	if value is None:
+		return bool(default)
+
+	text = str(value).strip().lower()
+	if text in ("1", "true", "yes", "y", "on"):
+		return True
+	if text in ("0", "false", "no", "n", "off"):
+		return False
+	return bool(default)
+
+
+def _resolve_api_key_for_side(side: str, default_api_key: Any) -> Tuple[str, str]:
+	side_key_name = "LLM_API_KEY_{}".format(side.upper())
+	side_key = os.getenv(side_key_name, "")
+	if side_key:
+		return side_key, side_key_name
+
+	shared_key = os.getenv("LLM_API_KEY", "")
+	if shared_key:
+		return shared_key, "LLM_API_KEY"
+
+	legacy_key = os.getenv("LLM_API", "")
+	if legacy_key:
+		return legacy_key, "LLM_API"
+
+	sitp_key = os.getenv("SITP_LLM_API_KEY", "")
+	if sitp_key:
+		return sitp_key, "SITP_LLM_API_KEY"
+
+	config_key = str(default_api_key or "")
+	if config_key:
+		return config_key, "config"
+
+	return "", "MISSING"
+
+
+def _resolve_side_models_cfg(models_cfg: Mapping[str, Any], side: str) -> Dict[str, Any]:
+	resolved = copy.deepcopy(dict(models_cfg))
+
+	llm_cfg = resolved.get("llm", {})
+	if not isinstance(llm_cfg, Mapping):
+		llm_cfg = {}
+	llm_cfg = dict(llm_cfg)
+
+	api_key, key_source = _resolve_api_key_for_side(side=side, default_api_key=llm_cfg.get("api_key", ""))
+	llm_cfg["api_key"] = api_key
+	llm_cfg["api_key_source"] = key_source
+
+	resolved["llm"] = llm_cfg
+	return resolved
+
+
+def _resolve_side_prompts(
+	prompts_cfg: Mapping[str, Any],
+	prompts_by_side: Mapping[str, Mapping[str, Any]],
+	side: str,
+) -> Dict[str, Any]:
+	if prompts_by_side:
+		side_cfg = prompts_by_side.get(side)
+		if isinstance(side_cfg, Mapping):
+			return dict(side_cfg)
+	return dict(prompts_cfg)
 
 
 def _extract_battle_state(payload: Mapping[str, Any]) -> Dict[str, Any]:
@@ -510,6 +643,7 @@ def _build_local_state_by_robot(
 			"robot_id": rid,
 			"team_color": side,
 			"state": dict(state_map),
+			"yaw": state_map.get("yaw", 0.0),
 			"hp": state_map.get("hp", 100.0),
 			"ammo": state_map.get("ammo", 10.0),
 			"alive": state_map.get("alive", True),
@@ -523,7 +657,7 @@ def _build_local_state_by_robot(
 def _stop_task(reason: str = "missing robot task") -> Dict[str, Any]:
 	return {
 		"action": "STOP",
-		"target": {"x": 0.0, "y": 0.0},
+		"target": {"x": 0.0, "y": 0.0,"yaw": 0.0},
 		"mode": 0,
 		"reason": str(reason),
 		"timeout": 1.5,
@@ -551,6 +685,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 	parser.add_argument("--configs-root", type=str, default=str(_default_configs_root()), help="MAS root containing configs")
 	parser.add_argument("--sides", type=str, default="red,blue", help="Comma-separated sides to enable")
 	parser.add_argument("--ltm-dir", type=str, default="", help="Optional LTM storage directory")
+	parser.add_argument("--disable-ltm", action="store_true", help="Disable long-term memory persistence")
 	parser.add_argument("--status-interval-s", type=float, default=5.0, help="Print status interval in seconds")
 	parser.add_argument("--run-duration-s", type=float, default=0.0, help="Exit after N seconds, 0 means forever")
 	parser.add_argument("--log-level", type=str, default="INFO", help="Logging level")
@@ -571,11 +706,14 @@ async def _async_main(args: argparse.Namespace) -> int:
 
 	ltm_dir = Path(args.ltm_dir) if str(args.ltm_dir).strip() else None
 
+	ltm_enabled = False if bool(getattr(args, "disable_ltm", False)) else None
+
 	try:
 		manager = HierarchicalMASManager.from_config_root(
 			configs_root=Path(args.configs_root),
 			enabled_sides=enabled_sides,
 			ltm_dir=ltm_dir,
+			ltm_enabled=ltm_enabled,
 		)
 	except ConfigError as exc:
 		LOGGER.error("Config load failed: %s", exc)

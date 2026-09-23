@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2.7
 # -*- coding: utf-8 -*-
 
 import sys
@@ -10,6 +10,7 @@ from robot_vs.msg import TaskCommand
 # 允许导入同级包（skill_manager、task_engine、skills/）
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from interfaces import BaseSkillManager, BaseTaskEngine
 from skill_manager import SkillManager
 from task_engine import TaskEngine
 
@@ -22,6 +23,10 @@ class CarAgent(object):
 
     参数（从 ROS 参数服务器读取）：
         ~loop_hz (float, 默认 10.0) - 主循环频率（Hz）
+
+    注：
+        skill_manager 应为 BaseSkillManager 实例（默认 SkillManager）
+        task_engine   应为 BaseTaskEngine 实例（默认 TaskEngine）
     """
 
     def __init__(self, ns=None, loop_hz=None, skill_manager=None, task_engine=None):

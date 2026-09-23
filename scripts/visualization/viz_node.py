@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2.7
 # -*- coding: utf-8 -*-
 
 import math
@@ -327,6 +327,29 @@ class VisualizerNode:
                 text_ammo.color.r = 0.0
                 text_ammo.text = "Ammo: {:.0f}".format(ammo)
                 health_markers.markers.append(text_ammo)
+
+                text_name = Marker()
+                text_name.header.frame_id = "map"
+                text_name.header.stamp = now
+                text_name.ns = "health"
+                text_name.id = marker_id
+                marker_id += 1
+                text_name.type = Marker.TEXT_VIEW_FACING
+                text_name.action = Marker.ADD
+                text_name.pose.position.x = x
+                text_name.pose.position.y = y - 0.23
+                text_name.pose.position.z = 0.28
+                text_name.scale.z = 0.08
+                text_name.color.a = 1.0
+                text_name.color.r = 0
+                text_name.color.g = 0
+                text_name.color.b = 0
+                display_name = ns
+                if display_name.startswith('robot_'):
+                    display_name = display_name[6:]  # 去掉 'robot_'
+                text_name.text = display_name
+                health_markers.markers.append(text_name)
+
 
                 # 彩色底盘（独立 Marker）
                 if not self.chassis_enabled:

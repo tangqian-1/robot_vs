@@ -17,8 +17,8 @@ class AttackSkill(BaseSkill):
         super(AttackSkill, self).__init__(skill_manager)
         self.target_x = 0.0
         self.target_y = 0.0
-        self.yaw_tolerance = 0.12
-        self.angular_speed = 0.7
+        self.yaw_tolerance = 0.1 # ~5.7度
+        self.angular_speed = 0.4
         self.fire_cooldown_s = 2.0
         self.pose_lost_timeout_s = 1.5
         self._last_fire_ts = None
@@ -29,13 +29,17 @@ class AttackSkill(BaseSkill):
         params = params or {}
         self.target_x = float(params.get("target_x", 0.0))
         self.target_y = float(params.get("target_y", 0.0))
-        self.yaw_tolerance = float(params.get("yaw_tolerance", 0.12))
-        self.angular_speed = abs(float(params.get("angular_speed", 0.7)))
+        self.yaw_tolerance = float(params.get("yaw_tolerance", 0.1))
+        self.angular_speed = abs(float(params.get("angular_speed", 0.4)))
         self.fire_cooldown_s = float(params.get("fire_cooldown_s", 2.0))
         self.pose_lost_timeout_s = float(params.get("pose_lost_timeout_s", 1.5))
         self._last_fire_ts = None
         self._start_ts = rospy.Time.now().to_sec()
         self._last_pose_ts = None
+
+        # Cancel navigation so move_base stops publishing cmd_vel during attack.
+        self.skill_manager.cancel_nav_goal()
+        self.skill_manager.publish_stop_velocity()
         self._status = RUNNING
 
         rospy.loginfo(

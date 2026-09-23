@@ -6,7 +6,7 @@
         type="referee_node.py"
         name="referee"
         output="screen"
-        required="false">
+        required="true">
     <rosparam command="load" file="$(arg referee_param_file)" />
   </node>
 
@@ -18,3 +18,4 @@
     <rosparam command="load" file="$(arg viz_param_file)" />
   </node>
 </launch>
+

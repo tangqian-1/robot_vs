@@ -10,8 +10,8 @@ def build_prompt(battle_state, robot_ids):
         "robot_ids": robot_ids,
         "required_output": {
             "<robot_id>": {
-                "action": "STOP | GOTO | ATTACK",
-                "target": {"x": 0.0, "y": 0.0},
+                "action": "STOP | GOTO | ATTACK | ROTATE",
+                "target": {"x": 0.0, "y": 0.0, "yaw": 0.0},
                 "mode": "int",
                 "reason": "short string",
                 "timeout": "float",
@@ -82,12 +82,13 @@ def main():
     }
     robot_ids = ["robot_red"]
     prompt = build_prompt(battle_state, robot_ids)
+  
 
     response = client.chat.completions.create(
-        # model="kimi-k2.5",
+        model="kimi-k2.5",
         # model="kimi-k2-turbo-preview",
         # model="glm-4.7-flash",
-        model="glm-4.7-flashX",
+        # model="glm-4.7-flashX",
         messages=[
             {
                 "role": "system",
@@ -98,10 +99,8 @@ def main():
             },
             {"role": "user", "content": prompt},
         ],
-        timeout=30.0,
-        extra_body={
-        "enable_thinking": False
-        },
+        timeout=90.0,
+
     )
 
     raw_text = str(response.choices[0].message.content or "").strip()

@@ -8,7 +8,7 @@ import copy
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Deque, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Deque, Dict, List, Mapping, Optional, Sequence, Tuple
 
 
 @dataclass(frozen=True)
@@ -118,20 +118,29 @@ class ShortTermMemory:
 		enemy_latest = _extract_enemy(last)
 		visible_enemy_count = _count_visible_enemies(enemy_latest)
 
-		lines.append(
-			"Latest teams: friendly={} visible_enemies={}.".format(
-				len(friendly_latest),
-				visible_enemy_count,
-			)
-		)
+		status_line = _build_friendly_status_line(friendly_latest, visible_enemy_count)
+		if status_line:
+			lines.append(status_line)
 
-		hp_delta_line = _build_hp_delta_line(_extract_friendly(first), friendly_latest)
-		if hp_delta_line:
-			lines.append(hp_delta_line)
+		movement_line = _build_movement_line(_extract_friendly(first), friendly_latest)
+		if movement_line:
+			lines.append(movement_line)
+		else:
+			latest_pos_line = _build_latest_position_line(friendly_latest)
+			if latest_pos_line:
+				lines.append(latest_pos_line)
 
-		ammo_line = _build_ammo_line(friendly_latest)
-		if ammo_line:
-			lines.append(ammo_line)
+		hp_ammo_line = _build_hp_ammo_line(_extract_friendly(first), friendly_latest)
+		if hp_ammo_line:
+			lines.append(hp_ammo_line)
+
+		reason_line = _build_teammate_reason_line(friendly_latest, max_items=3)
+		if reason_line:
+			lines.append(reason_line)
+
+		enemy_last_seen_line = _build_enemy_last_seen_line(entries, max_items=3)
+		if enemy_last_seen_line:
+			lines.append(enemy_last_seen_line)
 
 		note_tail = [item.note for item in entries if item.note]
 		if note_tail:
@@ -178,6 +187,56 @@ def _as_float(value: Any, default: float) -> float:
 		return float(default)
 
 
+def _to_float_or_none(value: Any) -> Optional[float]:
+	try:
+		return float(value)
+	except (TypeError, ValueError):
+		return None
+
+
+def _get_nested(value: Any, keys: Sequence[str]) -> Optional[Any]:
+	cursor = value
+	for key in keys:
+		if not isinstance(cursor, Mapping):
+			return None
+		cursor = cursor.get(key)
+	return cursor
+
+
+def _find_position_component(state_map: Mapping[str, Any], key: str) -> Tuple[Optional[Any], bool]:
+	candidates = (
+		("pose", "position", key),
+		("position", key),
+		("pos", key),
+		(key,),
+	)
+	for path in candidates:
+		value = _get_nested(state_map, path)
+		if value is not None:
+			return value, True
+	return None, False
+
+
+def _extract_position(state_map: Mapping[str, Any]) -> Optional[Dict[str, float]]:
+	x_raw, x_ok = _find_position_component(state_map, "x")
+	y_raw, y_ok = _find_position_component(state_map, "y")
+	if not (x_ok and y_ok):
+		return None
+
+	x = _to_float_or_none(x_raw)
+	y = _to_float_or_none(y_raw)
+	if x is None or y is None:
+		return None
+
+	yaw_raw, yaw_ok = _find_position_component(state_map, "yaw")
+	yaw = _to_float_or_none(yaw_raw) if yaw_ok else None
+	return {
+		"x": x,
+		"y": y,
+		"yaw": yaw if yaw is not None else 0.0,
+	}
+
+
 def _count_visible_enemies(enemy_block: Mapping[str, Any]) -> int:
 	if not isinstance(enemy_block, Mapping):
 		return 0
@@ -199,7 +258,41 @@ def _count_visible_enemies(enemy_block: Mapping[str, Any]) -> int:
 	return 0
 
 
-def _build_hp_delta_line(friendly_first: Mapping[str, Any], friendly_last: Mapping[str, Any]) -> str:
+def _build_friendly_status_line(friendly_latest: Mapping[str, Any], visible_enemy_count: int) -> str:
+	if not friendly_latest:
+		return "Latest friendly: count=0 visible_enemies={}.".format(visible_enemy_count)
+
+	alive_count = 0
+	low_hp_count = 0
+	in_combat_count = 0
+	for entry in friendly_latest.values():
+		state = _extract_robot_state(entry)
+		alive = bool(state.get("alive", True))
+		hp = _as_float(state.get("hp", 100.0), 100.0)
+		in_combat = bool(state.get("in_combat", False))
+		if alive and hp > 0:
+			alive_count += 1
+		if alive and hp <= 25.0:
+			low_hp_count += 1
+		if in_combat:
+			in_combat_count += 1
+
+	line = "Latest friendly: count={} alive={} low_hp={} visible_enemies={}.".format(
+		len(friendly_latest),
+		alive_count,
+		low_hp_count,
+		visible_enemy_count,
+	)
+	if in_combat_count:
+		line = line[:-1] + " in_combat={}.".format(in_combat_count)
+	return line
+
+
+def _build_movement_line(
+	friendly_first: Mapping[str, Any],
+	friendly_last: Mapping[str, Any],
+	max_items: int = 4,
+) -> str:
 	robot_ids = sorted(set(list(friendly_first.keys()) + list(friendly_last.keys())))
 	if not robot_ids:
 		return ""
@@ -208,27 +301,215 @@ def _build_hp_delta_line(friendly_first: Mapping[str, Any], friendly_last: Mappi
 	for robot_id in robot_ids:
 		first_state = _extract_robot_state(friendly_first.get(robot_id, {}))
 		last_state = _extract_robot_state(friendly_last.get(robot_id, {}))
-		first_hp = _as_float(first_state.get("hp", 100.0), 100.0)
-		last_hp = _as_float(last_state.get("hp", first_hp), first_hp)
-		delta = last_hp - first_hp
-		chunks.append("{}:{:+.1f}".format(robot_id, delta))
+		first_pos = _extract_position(first_state)
+		last_pos = _extract_position(last_state)
+		if not first_pos or not last_pos:
+			continue
+
+		dx = last_pos["x"] - first_pos["x"]
+		dy = last_pos["y"] - first_pos["y"]
+		chunks.append(
+			"{} dx={:+.2f} dy={:+.2f} pos=({:.2f},{:.2f})".format(
+				robot_id,
+				dx,
+				dy,
+				last_pos["x"],
+				last_pos["y"],
+			)
+		)
 
 	if not chunks:
 		return ""
-	return "HP delta (first->latest): {}.".format(", ".join(chunks))
+
+	if max_items > 0 and len(chunks) > max_items:
+		extra = len(chunks) - max_items
+		chunks = chunks[:max_items]
+		chunks.append("+{} more".format(extra))
+
+	return "Movement (first->latest): {}.".format("; ".join(chunks))
 
 
-def _build_ammo_line(friendly_last: Mapping[str, Any]) -> str:
+def _build_latest_position_line(friendly_last: Mapping[str, Any], max_items: int = 4) -> str:
 	if not friendly_last:
 		return ""
+
 	chunks: List[str] = []
 	for robot_id in sorted(friendly_last.keys()):
 		state = _extract_robot_state(friendly_last.get(robot_id, {}))
-		ammo = _as_float(state.get("ammo", 0.0), 0.0)
-		chunks.append("{}:{:.0f}".format(robot_id, ammo))
+		pos = _extract_position(state)
+		if not pos:
+			continue
+		chunks.append("{}({:.2f},{:.2f})".format(robot_id, pos["x"], pos["y"]))
+
 	if not chunks:
 		return ""
-	return "Latest ammo: {}.".format(", ".join(chunks))
+	if max_items > 0 and len(chunks) > max_items:
+		extra = len(chunks) - max_items
+		chunks = chunks[:max_items]
+		chunks.append("+{} more".format(extra))
+
+	return "Latest positions: {}.".format("; ".join(chunks))
+
+
+def _build_hp_ammo_line(
+	friendly_first: Mapping[str, Any],
+	friendly_last: Mapping[str, Any],
+	max_items: int = 4,
+) -> str:
+	robot_ids = sorted(set(list(friendly_first.keys()) + list(friendly_last.keys())))
+	if not robot_ids:
+		return ""
+
+	chunks: List[str] = []
+	for robot_id in robot_ids:
+		first_state = _extract_robot_state(friendly_first.get(robot_id, {}))
+		last_state = _extract_robot_state(friendly_last.get(robot_id, {}))
+		hp_present = ("hp" in first_state) or ("hp" in last_state)
+		ammo_present = "ammo" in last_state
+		if not (hp_present or ammo_present):
+			continue
+
+		hp_first = _as_float(first_state.get("hp", 100.0), 100.0)
+		hp_last = _as_float(last_state.get("hp", hp_first), hp_first)
+		hp_delta = hp_last - hp_first
+		ammo_last = _as_float(last_state.get("ammo", 0.0), 0.0)
+
+		chunks.append("{} hp={:.0f}({:+.0f}) ammo={:.0f}".format(robot_id, hp_last, hp_delta, ammo_last))
+
+	if not chunks:
+		return ""
+	if max_items > 0 and len(chunks) > max_items:
+		extra = len(chunks) - max_items
+		chunks = chunks[:max_items]
+		chunks.append("+{} more".format(extra))
+
+	return "HP/ammo (latest, delta): {}.".format("; ".join(chunks))
+
+
+def _build_teammate_reason_line(
+	friendly_latest: Mapping[str, Any],
+	max_items: int = 3,
+	max_reason_chars: int = 60,
+) -> str:
+	if not friendly_latest:
+		return ""
+
+	chunks: List[str] = []
+	for robot_id in sorted(friendly_latest.keys()):
+		state = _extract_robot_state(friendly_latest.get(robot_id, {}))
+		reason = str(state.get("reason", "")).strip()
+		if not reason:
+			continue
+		reason = _truncate_text(reason, max_reason_chars)
+		chunks.append("{}:{}".format(robot_id, reason))
+
+	if not chunks:
+		return ""
+	if max_items > 0 and len(chunks) > max_items:
+		extra = len(chunks) - max_items
+		chunks = chunks[:max_items]
+		chunks.append("+{} more".format(extra))
+
+	return "Teammate intent: {}.".format("; ".join(chunks))
+
+
+def _extract_enemies_from_state(enemy_state: Mapping[str, Any]) -> List[Dict[str, Any]]:
+	state = enemy_state.get("state", {})
+	if not isinstance(state, Mapping):
+		return []
+
+	items: List[Any] = []
+	visible = state.get("visible_enemies")
+	if isinstance(visible, list):
+		items = visible
+	else:
+		enemies = state.get("enemies")
+		if isinstance(enemies, list):
+			items = enemies
+		elif "x" in state and "y" in state:
+			items = [state]
+
+	result: List[Dict[str, Any]] = []
+	for idx, item in enumerate(items):
+		if not isinstance(item, Mapping):
+			continue
+		if item.get("visible") is False:
+			continue
+
+		enemy_id = str(item.get("id", item.get("robot_ns", item.get("name", ""))))
+		if not enemy_id:
+			enemy_id = "enemy_{}".format(idx + 1)
+
+		x_raw, x_ok = _find_position_component(item, "x")
+		y_raw, y_ok = _find_position_component(item, "y")
+		if not (x_ok and y_ok):
+			continue
+		x = _to_float_or_none(x_raw)
+		y = _to_float_or_none(y_raw)
+		if x is None or y is None:
+			continue
+
+		result.append({"id": enemy_id, "x": x, "y": y})
+
+	return result
+
+
+def _build_enemy_last_seen_line(entries: Sequence[STMEntry], max_items: int = 3) -> str:
+	if not entries:
+		return ""
+
+	last_seen: Dict[str, Dict[str, Any]] = {}
+	for entry in entries:
+		enemy_state = _extract_enemy(entry.state)
+		for enemy in _extract_enemies_from_state(enemy_state):
+			enemy_id = str(enemy.get("id", "")).strip()
+			if not enemy_id:
+				continue
+			last_seen[enemy_id] = {
+				"id": enemy_id,
+				"x": enemy.get("x"),
+				"y": enemy.get("y"),
+				"timestamp_s": entry.timestamp_s,
+			}
+
+	if not last_seen:
+		return ""
+
+	now_s = time.time()
+	sorted_items = sorted(
+		last_seen.values(),
+		key=lambda item: float(item.get("timestamp_s", 0.0)),
+		reverse=True,
+	)
+
+	chunks: List[str] = []
+	for item in sorted_items[: max(0, int(max_items))]:
+		x = _to_float_or_none(item.get("x"))
+		y = _to_float_or_none(item.get("y"))
+		if x is None or y is None:
+			continue
+		age = max(0.0, now_s - float(item.get("timestamp_s", now_s)))
+		chunks.append(
+			"{}({:.2f},{:.2f}) age={:.1f}s".format(
+				item.get("id", "enemy"),
+				x,
+				y,
+				age,
+			)
+		)
+
+	if not chunks:
+		return ""
+	return "Enemy last seen: {}.".format("; ".join(chunks))
+
+
+def _truncate_text(text: str, max_chars: int) -> str:
+	value = str(text or "")
+	if len(value) <= max_chars:
+		return value
+	if max_chars <= 3:
+		return value[:max_chars]
+	return value[: max_chars - 3] + "..."
 
 
 __all__ = [

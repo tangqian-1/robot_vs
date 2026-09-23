@@ -1,5 +1,5 @@
 # ============================================
-# 大模型配置文件
+# 大模型配置文件 for one agent
 # 切换模型只需要改 active_model 这一行
 # API Key 统一从环境变量读取：
 #   LLM_API_KEY_RED / LLM_API_KEY_BLUE
